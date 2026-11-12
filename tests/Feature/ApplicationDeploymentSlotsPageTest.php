@@ -81,11 +81,35 @@ test('an admin creates a slot and swaps from the page', function () {
 
     $slot = slotsPageRunningSlot($this->application);
     Livewire::test(DeploymentSlots::class, ['application' => $slot])
+        ->assertSeeInOrder(['Production slot', 'shop', 'Running', 'Live', 'Staging slot', 'shop-green', 'Running'])
         ->call('swap')
         ->assertDispatched('success')
-        ->assertSee('Swap in progress');
+        ->assertSee('Swapping');
 
     expect($slot->fresh()->fqdn)->toBe('https://shop.example.com');
+});
+
+test('the page shows which slot is live, its status, and a running deployment', function () {
+    $this->actingAs(slotsPageUser($this->team, 'admin'));
+    session(['currentTeam' => $this->team]);
+    Livewire::test(DeploymentSlots::class, ['application' => $this->application])->call('createSlot');
+    $slot = slotsPageRunningSlot($this->application);
+    $slot->update(['status' => 'exited']);
+    ApplicationDeploymentQueue::create([
+        'application_id' => $slot->id,
+        'deployment_uuid' => 'slot-deploy-1',
+        'deployment_url' => '/project/p/environment/e/application/a/deployment/slot-deploy-1',
+        'server_id' => $slot->destination->server_id,
+        'pull_request_id' => 0,
+        'status' => 'in_progress',
+        'commit' => 'HEAD',
+    ]);
+
+    Livewire::test(DeploymentSlots::class, ['application' => $slot->fresh()])
+        ->assertSeeInOrder(['Production slot', 'Running', 'Live', 'Staging slot', 'Exited', 'Deploying'])
+        ->assertSee('/deployment/slot-deploy-1')
+        ->assertSee('Wait until the running swap or deployment ends.')
+        ->assertSeeHtml('wire:poll.5s');
 });
 
 test('a member cannot create or swap slots', function () {

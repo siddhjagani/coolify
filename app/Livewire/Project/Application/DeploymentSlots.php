@@ -4,8 +4,11 @@ namespace App\Livewire\Project\Application;
 
 use App\Actions\Application\CreateApplicationSlot;
 use App\Actions\Application\SwapApplicationSlot;
+use App\Enums\ApplicationDeploymentStatus;
 use App\Models\Application;
+use App\Models\ApplicationDeploymentQueue;
 use App\Support\ValidationPatterns;
+use App\Traits\ListensToTeamChannel;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Facades\Cache;
 use Livewire\Component;
@@ -17,10 +20,18 @@ use Throwable;
 class DeploymentSlots extends Component
 {
     use AuthorizesRequests;
+    use ListensToTeamChannel;
 
     public Application $application;
 
     public ?string $slotName = null;
+
+    public function getListeners(): array
+    {
+        return $this->teamChannelListeners([
+            'ApplicationStatusChanged' => '$refresh',
+        ]);
+    }
 
     public function createSlot(): mixed
     {
@@ -64,11 +75,20 @@ class DeploymentSlots extends Component
     {
         $partner = $this->application->slotPartner();
         [$production, $staging] = $this->application->slotOf ? [$partner, $this->application] : [$this->application, $partner];
+        $deploymentUrls = $partner === null ? [] : ApplicationDeploymentQueue::query()
+            ->whereIn('application_id', [$production->id, $staging->id])
+            ->where('pull_request_id', 0)
+            ->whereIn('status', [ApplicationDeploymentStatus::QUEUED->value, ApplicationDeploymentStatus::IN_PROGRESS->value])
+            ->orderBy('id')
+            ->pluck('deployment_url', 'application_id')
+            ->all();
+        $swapping = $partner !== null && Cache::has(SwapApplicationSlot::lockKey($this->application->id, $partner->id));
 
         return view('livewire.project.application.deployment-slots', [
             'production' => $production,
             'staging' => $staging,
-            'swapping' => $partner !== null && Cache::has(SwapApplicationSlot::lockKey($this->application->id, $partner->id)),
+            'swapping' => $swapping,
+            'deploymentUrls' => $deploymentUrls,
             'unsupportedReason' => SwapApplicationSlot::unsupportedReason($this->application),
             'hasVolumes' => $this->application->persistentStorages()->exists(),
         ]);
