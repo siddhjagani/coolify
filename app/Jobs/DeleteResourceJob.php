@@ -132,8 +132,21 @@ class DeleteResourceJob implements ShouldBeEncrypted, ShouldQueue
         }
 
         $maintenanceServers = data_get($this->resource, 'is_maintenance_enabled') ? $this->resource->maintenanceServers() : null;
+        $slotServer = $this->resource instanceof Application && $this->resource->slotGroup()->isNotEmpty() ? $this->resource->destination?->server : null;
 
         $this->deleteLocalResource();
+
+        if ($slotServer) {
+            try {
+                // The traffic split of the slot group no longer sends traffic to the deleted application.
+                $slotServer->setupSlotTrafficSplit();
+            } catch (\Throwable $e) {
+                Log::warning('Slot traffic split update failed while deleting resource.', [
+                    'resource_id' => $this->resource->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
 
         if ($maintenanceServers) {
             try {

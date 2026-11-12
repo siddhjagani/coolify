@@ -25,6 +25,7 @@ use App\Notifications\Server\Unreachable;
 use App\Services\DigitalOceanService;
 use App\Services\HetznerService;
 use App\Services\HostingerService;
+use App\Services\Proxy\SlotTrafficSplit;
 use App\Services\VultrService;
 use App\Support\ValidationPatterns;
 use App\Traits\Auditable;
@@ -1012,9 +1013,39 @@ class Server extends BaseModel
             } else {
                 $this->uploadProxyFile($file, $configuration);
             }
+            // A slot router has the same priority as a maintenance router, so it must not exist while maintenance is on.
+            $this->setupSlotTrafficSplit();
         } else {
             // caddy-docker-proxy reads the base Caddyfile again on its next poll.
             $this->uploadProxyFile("$dynamicPath/Caddyfile", $this->caddyBaseCaddyfile($resources));
+        }
+    }
+
+    /**
+     * Writes the routing that splits the traffic of production applications between their deployment slots
+     * (SlotTrafficSplit). With Caddy it is part of the base Caddyfile, with the maintenance blocks.
+     */
+    public function setupSlotTrafficSplit(): void
+    {
+        $proxyType = $this->proxyType();
+        if ($this->isSwarm() || ! $this->isFunctional() || ! in_array($proxyType, [ProxyTypes::TRAEFIK->value, ProxyTypes::CADDY->value], true)) {
+            return;
+        }
+
+        $dynamicPath = $this->proxyPath().'/dynamic';
+        instant_remote_process(["mkdir -p $dynamicPath"], $this);
+        if ($proxyType === ProxyTypes::CADDY->value) {
+            $this->uploadProxyFile("$dynamicPath/Caddyfile", $this->caddyBaseCaddyfile());
+
+            return;
+        }
+
+        $file = "$dynamicPath/".SlotTrafficSplit::TRAEFIK_FILE;
+        $configuration = SlotTrafficSplit::traefikConfiguration($this);
+        if ($configuration === null) {
+            instant_remote_process(["rm -f $file"], $this);
+        } else {
+            $this->uploadProxyFile($file, $configuration);
         }
     }
 
@@ -1104,6 +1135,10 @@ class Server extends BaseModel
                     "\t}",
                 ]);
             }
+        }
+
+        foreach (SlotTrafficSplit::caddySites($this) as $address => $blocks) {
+            $sites[$address] = [...($sites[$address] ?? []), ...$blocks];
         }
 
         $caddyfile = 'import /dynamic/*.caddy';

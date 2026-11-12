@@ -248,11 +248,43 @@ paths:
         -
           bearerAuth: []
   '/applications/{uuid}/slots':
+    get:
+      tags:
+        - Applications
+      summary: 'List Deployment Slots'
+      description: 'List the slot group of an application: production first, then its slots, with their status and share of the production traffic. `traffic_weight` is null when the traffic split is off.'
+      operationId: list-application-slots
+      parameters:
+        -
+          name: uuid
+          in: path
+          description: 'UUID of production or of one of its slots.'
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'The slot group.'
+          content:
+            application/json:
+              schema:
+                properties:
+                  swapping: { type: boolean }
+                  traffic_split: { type: boolean }
+                  slots: { type: array, items: { properties: { uuid: { type: string }, name: { type: string }, role: { type: string, enum: [production, slot] }, status: { type: string }, fqdn: { type: [string, 'null'] }, traffic_weight: { type: [integer, 'null'] } }, type: object } }
+                type: object
+        '401':
+          $ref: '#/components/responses/401'
+        '404':
+          $ref: '#/components/responses/404'
+      security:
+        -
+          bearerAuth: []
     post:
       tags:
         - Applications
       summary: 'Create Deployment Slot'
-      description: 'Create the staging slot of an application: a clone on the same server with a generated domain, its own empty volumes, and no network aliases or scheduled tasks. The slot is not deployed. An application has at most one slot. Docker Compose applications, applications on more than one server, and applications with host port mappings or manually managed container labels cannot have a slot.'
+      description: 'Create a deployment slot of an application: a clone of production on the same server with a generated domain, its own empty volumes, and no network aliases, scheduled tasks, or traffic. The slot is not deployed. An application can have many slots; called with a slot, it adds a slot to the same production application. Docker Compose applications, applications on more than one server, and applications with host port mappings or manually managed container labels cannot have a slot.'
       operationId: create-application-slot
       parameters:
         -
@@ -288,8 +320,6 @@ paths:
           description: 'The token or user may not create resources in the environment of the application.'
         '404':
           $ref: '#/components/responses/404'
-        '409':
-          description: 'The application already has a deployment slot.'
         '422':
           $ref: '#/components/responses/422'
       security:
@@ -300,16 +330,26 @@ paths:
       tags:
         - Applications
       summary: 'Swap Deployment Slots'
-      description: 'Move the production traffic of an application to its staging slot without downtime. Call it with the UUID of either application of the pair. The staging slot first takes the production domains, proxy settings, HTTP basic auth, network aliases, and automatic deployment, and restarts at the commit it runs. When it runs, the old production application gets the staging routing and restarts, and the two applications swap their names, roles, and scheduled tasks. If the staging restart fails, the staging slot gets its own routing back. Code, environment variables, volumes, Git settings, deployment history, and UUIDs stay with each application, so a deployment by UUID reaches the other role after a swap. Both applications must run on the same server.'
+      description: 'Make a slot production without downtime. Call it with the UUID of the slot, or with the UUID of production and `slot_uuid` (needed when production has more than one slot). The slot first takes the production domains, proxy settings, HTTP basic auth, network aliases, and automatic deployment, and restarts at the commit it runs. When it runs, the old production application gets the staging routing and restarts, and the two applications swap their names, roles, and scheduled tasks. If the staging restart fails, the staging slot gets its own routing back. Code, environment variables, volumes, Git settings, deployment history, and UUIDs stay with each application, so a deployment by UUID reaches the other role after a swap. Both applications must run on the same server.'
       operationId: swap-application-slots
       parameters:
         -
           name: uuid
           in: path
-          description: 'UUID of the application or of its staging slot.'
+          description: 'UUID of production or of the slot to make production.'
           required: true
           schema:
             type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              properties:
+                slot_uuid:
+                  description: 'UUID of the slot to make production, when the path names production.'
+                  type: [string, 'null']
+              type: object
       responses:
         '202':
           description: 'Swap started.'
@@ -330,6 +370,57 @@ paths:
           description: 'A swap or a deployment of one of the applications is running.'
         '422':
           description: 'The applications cannot swap, for example because the staging slot is not running.'
+      security:
+        -
+          bearerAuth: []
+  '/applications/{uuid}/slots/traffic':
+    patch:
+      tags:
+        - Applications
+      summary: 'Set Traffic Split'
+      description: 'Split the traffic of the production domains between the applications of a slot group, in percent. Give a weight to every application of the group; the weights must add up to 100. A cookie keeps each visitor on one slot. `null` turns the split off, and production gets all the traffic. Applications that get traffic must run on the production server and be deployed.'
+      operationId: set-application-slot-traffic
+      parameters:
+        -
+          name: uuid
+          in: path
+          description: 'UUID of production or of one of its slots.'
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              required:
+                - weights
+              properties:
+                weights:
+                  description: 'Application UUID => percent.'
+                  type: [object, 'null']
+                  example: { production-uuid: 70, slot-uuid: 30 }
+                  additionalProperties: { type: integer, maximum: 100, minimum: 0 }
+              type: object
+      responses:
+        '200':
+          description: 'Traffic split saved.'
+          content:
+            application/json:
+              schema:
+                properties:
+                  message: { type: string, example: 'Traffic split saved.' }
+                type: object
+        '401':
+          $ref: '#/components/responses/401'
+        '403':
+          description: 'The token needs the deploy ability, or the user may not update every application of the group.'
+        '404':
+          description: 'The application or its deployment slots were not found.'
+        '409':
+          description: 'A swap of the slot group is running.'
+        '422':
+          description: 'The weights are not valid.'
       security:
         -
           bearerAuth: []
@@ -18410,7 +18501,7 @@ components:
         slot_of_id:
           type: integer
           nullable: true
-          description: 'Identifier of the production application when this application is its staging slot.'
+          description: 'Identifier of the production application when this application is one of its deployment slots.'
         dockerfile:
           type: string
           nullable: true
@@ -18641,6 +18732,12 @@ components:
           type: boolean
         is_auto_deploy_enabled:
           type: boolean
+        slot_traffic_weight:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
+          description: 'Share of the production traffic in percent, when the deployment slots split the traffic.'
         is_force_https_enabled:
           type: boolean
         is_debug_enabled:
