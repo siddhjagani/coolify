@@ -266,6 +266,7 @@ final class ServerTransferCoverage
         Application::class => [
             'environment_id' => self::LINKED, 'destination_type' => self::LINKED, 'destination_id' => self::LINKED,
             'source_type' => self::LINKED, 'source_id' => self::LINKED, 'private_key_id' => self::LINKED,
+            'slot_of_id' => self::LINKED,
         ],
         ApplicationSetting::class => ['application_id' => self::LINKED],
         ApplicationPreview::class => [

@@ -520,12 +520,14 @@ function clone_application(Application $source, $destination, array $overrides =
     }
 
     // Clone the application
+    // A clone is never a staging slot: CreateApplicationSlot links one after cloning.
     $newApplication = $source->replicate([
         'id',
         'created_at',
         'updated_at',
         'additional_servers_count',
         'additional_networks_count',
+        'slot_of_id',
     ])->fill(array_merge([
         'uuid' => $uuid,
         'name' => $name,

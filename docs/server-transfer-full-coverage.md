@@ -97,6 +97,7 @@ When you add a model or a setting to the transfer, add it to this file too.
 | ➕ | App with GitHub App source, app with GitLab App source, app with deploy key | |
 | ➕ | Saved SSH host keys | app with a deploy key on a self-hosted Git host, deployed once, so Source → SSH host keys has a line. Expected: the same line on the target |
 | ✅ | Domains | 2 domains, noindex domains, domain port overrides, preview URL template |
+| ➕ | Deployment slot | an application with a staging slot (`Deployment Slots` page). Expected: the slot is linked to its production application on the target |
 | ✅ | Health check | custom path, port, method, return code, interval, retries, start period |
 | ✅ | Limits | memory, swap, swappiness, reservation, CPUs, cpuset, CPU shares |
 | ➕ | Advanced | custom labels, custom docker run options, pre/post deployment command + container, manual webhook secrets |

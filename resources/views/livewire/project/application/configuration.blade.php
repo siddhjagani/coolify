@@ -29,6 +29,8 @@
                 <livewire:project.application.source :application="$application" />
             @elseif ($currentRoute === 'project.application.servers')
                 <livewire:project.shared.destination :resource="$application" />
+            @elseif ($currentRoute === 'project.application.deployment-slots' && $application->build_pack !== 'dockercompose')
+                <livewire:project.application.deployment-slots :application="$application" />
             @elseif ($currentRoute === 'project.application.scheduled-tasks.show')
                 <livewire:project.shared.scheduled-task.all :resource="$application" />
             @elseif ($currentRoute === 'project.application.webhooks')

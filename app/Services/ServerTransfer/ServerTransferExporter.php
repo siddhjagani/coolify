@@ -997,6 +997,7 @@ class ServerTransferExporter
             'secret_manager_link' => $this->exportSecretManagerLink($application),
             'source' => $source,
             'private_key_uuid' => $application->private_key?->uuid,
+            'slot_of_uuid' => $application->slotOf?->uuid,
             'had_git_source' => filled($application->source_id),
             'had_private_key' => filled($application->private_key_id),
         ];
