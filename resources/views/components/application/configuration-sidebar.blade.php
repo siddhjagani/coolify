@@ -80,6 +80,12 @@
                 'badge' => true,
             ],
             [
+                'label' => 'Deployment Slots',
+                'route' => 'project.application.deployment-slots',
+                'active' => $currentRoute === 'project.application.deployment-slots',
+                'visible' => $application->build_pack !== 'dockercompose',
+            ],
+            [
                 'label' => 'Scheduled Tasks',
                 'route' => 'project.application.scheduled-tasks.show',
                 'active' => str($currentRoute)->startsWith('project.application.scheduled-tasks'),
@@ -170,6 +176,7 @@
             'Runtime Logs' => 'unordered-list',
             'Git Source' => 'sources',
             'Servers' => 'servers',
+            'Deployment Slots' => 'layers',
             'Scheduled Tasks' => 'calendar',
             'Webhooks' => 'webhook',
             'Preview Deployments' => 'eye',
@@ -189,7 +196,7 @@
         $menuGroups = [
             'Settings' => ['General', 'Domains', 'Environment Variables', 'Persistent Storage', 'Advanced', 'Swarm', 'Healthcheck'],
             'Observe & troubleshoot' => ['Runtime Logs', 'Deployment Logs', 'Terminal', 'Files', 'Metrics', 'Analytics', 'Security'],
-            'Deploy' => ['Git Source', 'Servers', 'Preview Deployments'],
+            'Deploy' => ['Git Source', 'Servers', 'Deployment Slots', 'Preview Deployments'],
             'Automation' => ['Scheduled Tasks', 'Webhooks', 'Backups'],
             'Operations' => ['Resource Operations', 'Maintenance Mode', 'Resource Limits', 'Rollback', 'Tags'],
             'Danger Zone' => ['Danger Zone'],

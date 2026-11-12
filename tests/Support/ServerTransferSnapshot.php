@@ -29,6 +29,7 @@ final class ServerTransferSnapshot
         'dns_provider_zone_id' => 'dns_provider_zones', 'github_app_id' => 'github_apps', 'cloud_provider_token_id' => 'cloud_provider_tokens',
         'managed_dns_record_id' => 'managed_dns_records', 'standalone_sqlite_id' => 'standalone_sqlites', 'icon_s3_storage_id' => 's3_storages',
         'scheduled_database_backup_id' => 'scheduled_database_backups', 'scheduled_volume_backup_id' => 'scheduled_volume_backups',
+        'slot_of_id' => 'applications',
     ];
 
     /** Polymorphic relations: `<name>_type` + `<name>_id`. */

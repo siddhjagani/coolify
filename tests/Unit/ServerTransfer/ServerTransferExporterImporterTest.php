@@ -1299,6 +1299,36 @@ test('transfer keeps the link between an application volume and its sqlite datab
         ->and($importedSqlite->persistentStorages()->sole()->isSharedWithAnotherResource())->toBeTrue();
 });
 
+test('a deployment slot keeps its link to the production application, and a slot without its production is unlinked', function (bool $withProduction) {
+    $slot = Application::factory()->create([
+        'environment_id' => $this->environment->id,
+        'destination_id' => $this->destination->id,
+        'destination_type' => $this->destination->getMorphClass(),
+        'name' => 'my-app-staging',
+        'fqdn' => 'https://staging.example.com',
+    ]);
+    $slot->forceFill(['slot_of_id' => $this->application->id])->save();
+    $bundle = $this->exporter->export($this->server);
+    if (! $withProduction) {
+        $bundle['projects'][0]['environments'][0]['applications'] = array_values(array_filter(
+            $bundle['projects'][0]['environments'][0]['applications'],
+            fn (array $application) => $application['uuid'] !== $this->application->uuid,
+        ));
+    }
+
+    $slot->forceDelete();
+    removeTransferSourceResources($this);
+    $result = $this->importer->import($bundle, teamId: $this->team->id, dryRun: false, preserveUuids: false, adoptMode: false);
+
+    $importedSlot = Application::where('name', 'my-app-staging')->sole();
+    if ($withProduction) {
+        expect($importedSlot->slot_of_id)->toBe(Application::where('name', 'my-app')->sole()->id);
+    } else {
+        expect($importedSlot->slot_of_id)->toBeNull()
+            ->and(implode("\n", $result['warnings']))->toContain('deployment slot of an application that is not part of this transfer');
+    }
+})->with(['production in the bundle' => true, 'production left out' => false]);
+
 test('secret manager links of applications and databases move with their integration token', function () {
     $token = IntegrationToken::factory()->create([
         'team_id' => $this->team->id,

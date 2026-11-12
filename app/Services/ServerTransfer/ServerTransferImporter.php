@@ -152,6 +152,13 @@ class ServerTransferImporter
     private array $pendingSqliteLinks = [];
 
     /**
+     * Imported staging slots and the bundle UUID of their production application, which may be imported later.
+     *
+     * @var list<array{slot: Application, production_uuid: string}>
+     */
+    private array $pendingSlotLinks = [];
+
+    /**
      * Warnings about references of imported resources that this instance cannot resolve.
      *
      * @var list<string>
@@ -319,6 +326,7 @@ class ServerTransferImporter
             $this->serviceDatabaseMap = [];
             $this->databaseMap = [];
             $this->pendingSqliteLinks = [];
+            $this->pendingSlotLinks = [];
             $this->importWarnings = [];
             $this->gitSourceApplications = [];
 
@@ -408,6 +416,9 @@ class ServerTransferImporter
                     foreach (data_get($environmentPayload, 'applications', []) as $appPayload) {
                         $app = $this->importApplication($appPayload, $environment, $destinationMap, $preserveUuids, $adoptMode, $teamId);
                         $this->applicationMap[(string) data_get($appPayload, 'uuid', $app->uuid)] = $app;
+                        if (filled(data_get($appPayload, 'slot_of_uuid'))) {
+                            $this->pendingSlotLinks[] = ['slot' => $app, 'production_uuid' => (string) data_get($appPayload, 'slot_of_uuid')];
+                        }
                         $created['applications']++;
                         $created['previews'] += count(data_get($appPayload, 'previews', []));
                     }
@@ -431,7 +442,7 @@ class ServerTransferImporter
                 }
             }
 
-            $warnings = array_merge($warnings, $this->linkSqliteVolumes());
+            $warnings = array_merge($warnings, $this->linkSqliteVolumes(), $this->linkApplicationSlots());
 
             $this->importDnsZones(data_get($bundle, 'dns_zones', []), $preserveUuids);
             $created['managed_dns_records'] = $this->importManagedDnsRecords(data_get($bundle, 'managed_dns_records', []), $server, $teamId, $preserveUuids);
@@ -1643,6 +1654,26 @@ class ServerTransferImporter
             }
 
             $link['volume']->forceFill(['standalone_sqlite_id' => $sqlite->id])->save();
+        }
+
+        return $warnings;
+    }
+
+    /**
+     * @return list<string> warnings for slots whose production application is not in the bundle
+     */
+    private function linkApplicationSlots(): array
+    {
+        $warnings = [];
+        foreach ($this->pendingSlotLinks as $link) {
+            $production = $this->applicationMap[$link['production_uuid']] ?? null;
+            if ($production === null) {
+                $warnings[] = "Application {$link['slot']->name} is a deployment slot of an application that is not part of this transfer. It is a normal application on this instance.";
+
+                continue;
+            }
+
+            $link['slot']->forceFill(['slot_of_id' => $production->id])->save();
         }
 
         return $warnings;

@@ -29,7 +29,9 @@ use App\Traits\ScopedByAccessGrants;
 use Database\Factories\ApplicationFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -100,6 +102,7 @@ use Symfony\Component\Yaml\Yaml;
         'source_id' => ['type' => 'integer', 'nullable' => true, 'description' => 'Source identifier.'],
         'private_key_id' => ['type' => 'integer', 'nullable' => true, 'description' => 'Private key identifier.'],
         'environment_id' => ['type' => 'integer', 'description' => 'Environment identifier.'],
+        'slot_of_id' => ['type' => 'integer', 'nullable' => true, 'description' => 'Identifier of the production application when this application is its staging slot.'],
         'dockerfile' => ['type' => 'string', 'nullable' => true, 'description' => 'Dockerfile content. Used for dockerfile build pack.'],
         'dockerfile_location' => ['type' => 'string', 'description' => 'Dockerfile location.'],
         'custom_labels' => ['type' => 'string', 'nullable' => true, 'description' => 'Custom labels.'],
@@ -1346,6 +1349,31 @@ class Application extends BaseModel
     public function previews()
     {
         return $this->hasMany(ApplicationPreview::class)->orderBy('pull_request_id', 'desc');
+    }
+
+    /**
+     * The production application, when this application is its staging slot.
+     */
+    public function slotOf(): BelongsTo
+    {
+        return $this->belongsTo(Application::class, 'slot_of_id');
+    }
+
+    /**
+     * The staging slot, when this application is the production application.
+     */
+    public function slot(): HasOne
+    {
+        return $this->hasOne(Application::class, 'slot_of_id');
+    }
+
+    /**
+     * The other application of the slot pair: the production application of a staging slot, or the staging slot of a
+     * production application.
+     */
+    public function slotPartner(): ?Application
+    {
+        return $this->slotOf ?? $this->slot;
     }
 
     public function deployment_queue()

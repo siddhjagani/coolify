@@ -439,6 +439,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/backups/{backup_uuid}/danger', ApplicationBackupShow::class)->name('project.application.backup.danger');
         Route::get('/source', ApplicationConfiguration::class)->name('project.application.source');
         Route::get('/servers', ApplicationConfiguration::class)->name('project.application.servers');
+        Route::get('/deployment-slots', ApplicationConfiguration::class)->name('project.application.deployment-slots');
         Route::get('/scheduled-tasks', ApplicationConfiguration::class)->name('project.application.scheduled-tasks.show');
         Route::get('/webhooks', ApplicationConfiguration::class)->name('project.application.webhooks');
         Route::get('/preview-deployments', ApplicationConfiguration::class)->name('project.application.preview-deployments');
