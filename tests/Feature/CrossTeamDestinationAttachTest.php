@@ -298,7 +298,7 @@ describe('Destination on a server that is not usable', function () {
 
         Livewire::test(Destination::class, ['resource' => $this->applicationA])
             ->call('promote', $this->destinationA2->id, $this->serverA2->id)
-            ->assertDispatched('error', 'Failed to promote.', "The server {$this->serverA2->name} is not reachable. Check the connection on the server page and try again.")
+            ->assertDispatched('error', 'Failed to swap.', "The server {$this->serverA2->name} is not reachable. Check the connection on the server page and try again.")
             ->assertStatus(200);
 
         expect($this->applicationA->fresh()->destination_id)->toBe($this->destinationA->id);

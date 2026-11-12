@@ -127,7 +127,7 @@
                                                     wire:click="promote('{{ data_get($destination, 'id') }}','{{ data_get($destination, 'server.id') }}')"
                                                     @click="open = false">
                                                     <x-reicon name="shield-star" class="size-3.5 opacity-70" />
-                                                    Make primary
+                                                    Swap with primary
                                                 </button>
                                             @endcan
                                             @if ($destinationStatus->startsWith('running'))
@@ -172,6 +172,60 @@
             @endif
 
             @if (data_get($resource, 'build_pack') !== 'dockercompose')
+                @php
+                    $autoFailoverUnavailableReason = $resource->autoFailoverUnavailableReason();
+                    $showAvailability = $isAutoFailoverEnabled || $resource->availabilityIncidents()->exists();
+                @endphp
+                <x-application.settings-section id="high-availability-section" title="High availability"
+                    helper="Traffic goes to the primary server. With automatic failover, Coolify makes an additional server primary when the primary server goes down, and points the DNS records that it manages for this application to the new primary server.">
+                    <x-slot:actions>
+                        <x-forms.checkbox instantSave="instantSaveAutoFailover" id="isAutoFailoverEnabled"
+                            label="Automatic failover" canGate="update" :canResource="$resource"
+                            :disabled="$autoFailoverUnavailableReason !== null && ! $isAutoFailoverEnabled"
+                            helper="Coolify notices that the primary server is down in about 30 to 90 seconds. It then makes the first additional server that is up and runs the application primary. It does not swap back on its own when the old server is back; use Swap with primary for that." />
+                    </x-slot:actions>
+                    <div class="flex flex-col gap-4">
+                        @if (! $autoFailoverUnavailableReason && ! $showAvailability && $this->recentSwaps->isEmpty())
+                            <p class="text-[13px] text-neutral-500 dark:text-fg-dim">
+                                Turn on automatic failover to move this application to an additional server when the primary server goes down, and to track its uptime.
+                            </p>
+                        @endif
+                        @if ($autoFailoverUnavailableReason)
+                            <x-callout type="warning"
+                                title="{{ $isAutoFailoverEnabled ? 'Automatic failover cannot work right now' : 'Automatic failover is not available' }}">
+                                {{ $autoFailoverUnavailableReason }}
+                            </x-callout>
+                        @endif
+
+                        @if ($showAvailability)
+                            <x-availability.summary :model="$resource" :server="data_get($resource, 'destination.server')"
+                                empty-description="Coolify records an outage when the primary server does not run the application, and ends it when it does again." />
+                        @endif
+
+                        @if ($this->recentSwaps->isNotEmpty())
+                            <div class="flex flex-col gap-2">
+                                <h4 class="text-sm font-semibold text-black dark:text-fg">Recent swaps</h4>
+                                <ul class="divide-y divide-neutral-200 rounded-lg ring-1 ring-neutral-200 dark:divide-white/[0.07] dark:ring-white/[0.08]">
+                                    @foreach ($this->recentSwaps as $swap)
+                                        <li class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-[13px]"
+                                            wire:key="swap-{{ $swap->id }}">
+                                            <span class="min-w-0 text-black dark:text-fg">
+                                                {{ data_get($swap->metadata, 'from_server_name') }}
+                                                <span class="text-neutral-500 dark:text-fg-dim">to</span>
+                                                {{ data_get($swap->metadata, 'to_server_name') }}
+                                            </span>
+                                            <span class="flex items-center gap-3 text-neutral-500 dark:text-fg-dim">
+                                                <span>{{ $swap->source === 'system' ? 'Automatic failover' : 'Swap' }}</span>
+                                                <span class="tabular-nums" title="{{ $swap->created_at }}">{{ $swap->created_at->diffForHumans() }}</span>
+                                            </span>
+                                        </li>
+                                    @endforeach
+                                </ul>
+                            </div>
+                        @endif
+                    </div>
+                </x-application.settings-section>
+
                 <x-application.settings-section id="available-servers-section" title="Add another server"
                     helper="Attach another available server and network as a deployment destination." :flush="$resource->persistentStorages()->count() === 0">
                     @if ($resource->persistentStorages()->count() > 0)

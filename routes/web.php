@@ -89,6 +89,7 @@ use App\Livewire\Security\PrivateKey\Index as SecurityPrivateKeyIndex;
 use App\Livewire\SelectTeam;
 use App\Livewire\Server\Advanced as ServerAdvanced;
 use App\Livewire\Server\Analytics\Show as ServerAnalytics;
+use App\Livewire\Server\Availability as ServerAvailability;
 use App\Livewire\Server\CaCertificate\Show as CaCertificateShow;
 use App\Livewire\Server\Canvas as ServerCanvas;
 use App\Livewire\Server\Charts as ServerCharts;
@@ -555,6 +556,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::get('/log-drains', LogDrains::class)->name('server.log-drains');
             Route::get('/metrics', ServerCharts::class)->name('server.metrics');
             Route::get('/analytics', ServerAnalytics::class)->name('server.analytics');
+            Route::get('/availability', ServerAvailability::class)->name('server.availability');
             Route::get('/danger', DeleteServer::class)->name('server.delete');
             Route::get('/transfer', ServerTransfer::class)->name('server.transfer');
             Route::get('/proxy', ProxyShow::class)->name('server.proxy');

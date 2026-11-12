@@ -30,6 +30,7 @@ use Symfony\Component\Yaml\Yaml;
         'is_swarm_only_worker_nodes' => ['type' => 'boolean'],
         'is_raw_compose_deployment_enabled' => ['type' => 'boolean'],
         'is_build_server_enabled' => ['type' => 'boolean'],
+        'is_auto_failover_enabled' => ['type' => 'boolean', 'description' => 'Make an additional server primary when the primary server goes down.'],
         'is_consistent_container_name_enabled' => ['type' => 'boolean'],
         'is_gzip_enabled' => ['type' => 'boolean'],
         'traefik_certificate_resolver' => ['type' => 'string', 'nullable' => true, 'description' => 'Traefik certificate resolver override. Null uses the server setting, "none" uses no resolver.'],
@@ -76,6 +77,7 @@ class ApplicationSetting extends Model
         'is_static' => 'boolean',
         'is_spa' => 'boolean',
         'is_build_server_enabled' => 'boolean',
+        'is_auto_failover_enabled' => 'boolean',
         'is_preserve_repository_enabled' => 'boolean',
         'is_container_label_escape_enabled' => 'boolean',
         'is_container_label_readonly_enabled' => 'boolean',
@@ -136,6 +138,7 @@ class ApplicationSetting extends Model
         'is_swarm_only_worker_nodes',
         'is_raw_compose_deployment_enabled',
         'is_build_server_enabled',
+        'is_auto_failover_enabled',
         'is_consistent_container_name_enabled',
         'is_gzip_enabled',
         'traefik_certificate_resolver',
@@ -165,6 +168,15 @@ class ApplicationSetting extends Model
         'is_auto_cancel_queued_deployments_enabled',
         'is_auto_cancel_building_deployments_enabled',
     ];
+
+    protected static function booted(): void
+    {
+        static::updated(function (ApplicationSetting $settings) {
+            if ($settings->wasChanged('is_auto_failover_enabled') && ! $settings->is_auto_failover_enabled) {
+                $settings->application?->stopAvailabilityTracking();
+            }
+        });
+    }
 
     /**
      * Like custom container names, a prefix must be unique per server so that uuid, custom container

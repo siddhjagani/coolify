@@ -3,10 +3,12 @@
 namespace App\Models;
 
 use App\Enums\ApplicationDeploymentStatus;
+use App\Enums\AvailabilityIncidentReason;
 use App\Enums\BuildPackTypes;
 use App\Enums\HttpBasicAuthHashAlgorithm;
 use App\Enums\ProxyTypes;
 use App\Exceptions\DeploymentException;
+use App\Jobs\NotifyResourceStoppedJob;
 use App\Services\ConfigurationGenerator;
 use App\Services\DeploymentConfiguration\ApplicationConfigurationSnapshot;
 use App\Services\DeploymentConfiguration\ConfigurationDiff;
@@ -15,6 +17,7 @@ use App\Support\DomainPortOverrides;
 use App\Support\DomainUrlParts;
 use App\Traits\Auditable;
 use App\Traits\ClearsGlobalSearchCache;
+use App\Traits\HasAvailability;
 use App\Traits\HasComposeVolumeWarnings;
 use App\Traits\HasConfiguration;
 use App\Traits\HasImageScans;
@@ -32,6 +35,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -143,7 +147,7 @@ use Symfony\Component\Yaml\Yaml;
 class Application extends BaseModel
 {
     /** @use HasFactory<ApplicationFactory> */
-    use Auditable, ClearsGlobalSearchCache, HasComposeVolumeWarnings, HasConfiguration, HasFactory, HasImageScans, HasMaintenancePage, HasMetrics, HasNoindexDomains, HasSafeStringAttribute, HasSecretManager, HasStars, ReleasesManagedDnsRecords, ScopedByAccessGrants, SoftDeletes;
+    use Auditable, ClearsGlobalSearchCache, HasAvailability, HasComposeVolumeWarnings, HasConfiguration, HasFactory, HasImageScans, HasMaintenancePage, HasMetrics, HasNoindexDomains, HasSafeStringAttribute, HasSecretManager, HasStars, ReleasesManagedDnsRecords, ScopedByAccessGrants, SoftDeletes;
 
     public const MAX_DOCKER_COMPOSE_SIZE_BYTES = 5 * 1024 * 1024;
 
@@ -725,6 +729,80 @@ class Application extends BaseModel
         }
 
         return "The primary server uses {$primaryProxy} and {$server->name} uses {$serverProxy}. All servers of an application must use the same proxy, because they share the same proxy labels.";
+    }
+
+    /**
+     * The reason why automatic failover cannot be turned on, or null if it can.
+     */
+    public function autoFailoverUnavailableReason(): ?string
+    {
+        if ($this->destination_type !== StandaloneDocker::class) {
+            return 'Automatic failover needs a standalone Docker destination. Swarm applications cannot use it.';
+        }
+        if ($reason = $this->additionalServersUnavailableReason()) {
+            return $reason;
+        }
+        if (! $this->additional_networks()->exists()) {
+            return 'Add an additional server first. It runs a standby copy of the application that takes over when the primary server goes down.';
+        }
+        if (str($this->docker_registry_image_name)->isEmpty()) {
+            return 'Set a Docker registry image in the General tab first, so that every server runs the same image.';
+        }
+
+        return null;
+    }
+
+    /**
+     * The additional network to fail over to: the first one, in the order the servers were added, whose server
+     * is up and runs the application.
+     */
+    public function failoverTarget(): ?StandaloneDocker
+    {
+        return $this->additional_networks()
+            ->with('server.settings')
+            ->orderByPivot('id')
+            ->get()
+            ->first(fn (StandaloneDocker $network): bool => $network->server?->id === (int) $network->pivot->server_id
+                && $network->server->isFunctional()
+                && str($network->pivot->status)->startsWith('running'));
+    }
+
+    /**
+     * Opens an outage when the primary server stops serving the application and ends it when it serves it again.
+     * Runs every minute for applications with automatic failover. Stops by Coolify and deployments are not outages.
+     */
+    public function recordAvailability(): void
+    {
+        $serverIsUp = $this->destination?->server?->isFunctional() === true;
+        $isUp = $serverIsUp && str($this->realStatus())->startsWith('running');
+        $wasUp = Cache::get($this->availabilityCacheKey());
+        Cache::put($this->availabilityCacheKey(), $isUp, now()->addDay());
+
+        if ($isUp) {
+            $this->endAvailabilityIncident();
+
+            return;
+        }
+
+        // Only a change from up to down is an outage: the state before the first check is unknown.
+        if ($wasUp === true && ! NotifyResourceStoppedJob::stopIsExpected($this) && ! NotifyResourceStoppedJob::isDeploying($this)) {
+            $this->startAvailabilityIncident($serverIsUp ? AvailabilityIncidentReason::NOT_RUNNING : AvailabilityIncidentReason::SERVER_DOWN);
+        }
+    }
+
+    /**
+     * Ends the open outage and forgets the last state. Applications without automatic failover are not tracked,
+     * so an outage that stays open would count as downtime forever.
+     */
+    public function stopAvailabilityTracking(): void
+    {
+        $this->endAvailabilityIncident();
+        Cache::forget($this->availabilityCacheKey());
+    }
+
+    private function availabilityCacheKey(): string
+    {
+        return "application-availability:{$this->id}";
     }
 
     public function is_public_repository(): bool

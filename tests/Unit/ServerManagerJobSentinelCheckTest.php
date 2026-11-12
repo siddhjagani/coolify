@@ -4,8 +4,12 @@ use App\Enums\ServerRole;
 use App\Jobs\CheckAndStartSentinelJob;
 use App\Jobs\ServerConnectionCheckJob;
 use App\Jobs\ServerManagerJob;
+use App\Models\Application;
+use App\Models\Environment;
 use App\Models\InstanceSettings;
+use App\Models\Project;
 use App\Models\Server;
+use App\Models\StandaloneDocker;
 use App\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -115,6 +119,22 @@ it('dispatches ServerConnectionCheckJob when sentinel is live but the server is 
         return $job->server->id === $server->id;
     });
 })->with(['is_reachable', 'is_usable']);
+
+it('dispatches ServerConnectionCheckJob when sentinel is live and the server is primary for automatic failover', function () {
+    $server = createSentinelCheckServer($this->team, Carbon::now());
+    $application = Application::factory()->create([
+        'environment_id' => Environment::factory()->create(['project_id' => Project::factory()->create(['team_id' => $this->team->id])->id])->id,
+        'destination_id' => StandaloneDocker::query()->where('server_id', $server->id)->value('id'),
+        'destination_type' => StandaloneDocker::class,
+    ]);
+    $application->settings->update(['is_auto_failover_enabled' => true]);
+
+    expect($server->isSentinelLive())->toBeTrue();
+
+    (new ServerManagerJob)->handle();
+
+    Queue::assertPushed(ServerConnectionCheckJob::class, fn ($job) => $job->server->id === $server->id);
+});
 
 it('dispatches ServerConnectionCheckJob when sentinel is not live', function () {
     $server = createSentinelCheckServer($this->team, Carbon::now()->subMinutes(10));

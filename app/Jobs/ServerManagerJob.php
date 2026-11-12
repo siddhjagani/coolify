@@ -2,8 +2,10 @@
 
 namespace App\Jobs;
 
+use App\Models\Application;
 use App\Models\InstanceSettings;
 use App\Models\Server;
+use App\Models\StandaloneDocker;
 use App\Models\Team;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
@@ -155,7 +157,20 @@ class ServerManagerJob implements ShouldBeEncrypted, ShouldQueue
 
     private function dispatchConnectionChecks(Collection $servers): void
     {
-        $servers->each(function (Server $server) {
+        $failoverServerIds = null;
+        $isFailoverPrimary = function (Server $server) use (&$failoverServerIds): bool {
+            $failoverServerIds ??= StandaloneDocker::query()
+                ->whereIn('id', Application::query()
+                    ->where('destination_type', StandaloneDocker::class)
+                    ->whereRelation('settings', 'is_auto_failover_enabled', true)
+                    ->pluck('destination_id'))
+                ->pluck('server_id')
+                ->flip();
+
+            return $failoverServerIds->has($server->id);
+        };
+
+        $servers->each(function (Server $server) use ($isFailoverPrimary) {
             try {
                 if ($server->hasPlaceholderIp()) {
                     return;
@@ -164,8 +179,11 @@ class ServerManagerJob implements ShouldBeEncrypted, ShouldQueue
                 // Skip SSH connection check if Sentinel is healthy — its heartbeat already proves connectivity.
                 // Never skip while the server is marked unreachable or unusable: the heartbeat does not
                 // restore these flags, so deployments would fail with "Server is not functional" forever.
+                // Never skip a primary server of automatic failover applications: a heartbeat counts as
+                // stale only after two minutes, which would delay the failover by that much.
                 if ($server->isSentinelEnabled() && $server->isSentinelLive()
-                    && $server->settings->is_reachable && $server->settings->is_usable) {
+                    && $server->settings->is_reachable && $server->settings->is_usable
+                    && ! $isFailoverPrimary($server)) {
                     return;
                 }
                 if ($this->shouldSkipDueToBackoff($server)) {

@@ -56,6 +56,9 @@ class CleanupDatabase extends Command
 
         $this->cleanupTable('github_runner_executions', 'created_at', now()->subDays($keep_days), fn (Builder $query) => $query
             ->whereNotIn('status', array_map(fn (GithubRunnerStatus $status): string => $status->value, GithubRunnerStatus::active())));
+
+        // The availability pages show at most 30 days. An open outage (no end) is kept.
+        $this->cleanupTable('availability_incidents', 'ended_at', now()->subDays(90));
     }
 
     /**

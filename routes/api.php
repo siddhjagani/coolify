@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\ApplicationAvailabilityController;
 use App\Http\Controllers\Api\ApplicationPreviewsController;
 use App\Http\Controllers\Api\ApplicationsController;
 use App\Http\Controllers\Api\AuditEventsController;
@@ -26,6 +27,7 @@ use App\Http\Controllers\Api\ScheduledTasksController;
 use App\Http\Controllers\Api\SecretManagerController;
 use App\Http\Controllers\Api\SecurityController;
 use App\Http\Controllers\Api\SentinelController;
+use App\Http\Controllers\Api\ServerAvailabilityController;
 use App\Http\Controllers\Api\ServerCloudflareTunnelController;
 use App\Http\Controllers\Api\ServerDockerCleanupController;
 use App\Http\Controllers\Api\ServerDockerRegistriesController;
@@ -183,6 +185,8 @@ Route::group([
     Route::get('/servers/{uuid}/log-drains', [ServerLogDrainsController::class, 'show'])->middleware(['api.ability:read']);
     Route::patch('/servers/{uuid}/log-drains', [ServerLogDrainsController::class, 'update'])->middleware(['api.ability:write', 'api.ability:deploy']);
 
+    Route::get('/servers/{uuid}/availability', [ServerAvailabilityController::class, 'show'])->middleware(['api.ability:read']);
+
     Route::get('/servers/{uuid}/sentinel', [ServerSentinelController::class, 'show'])->middleware(['api.ability:read']);
     Route::patch('/servers/{uuid}/sentinel', [ServerSentinelController::class, 'update'])->middleware(['api.ability:write', 'api.ability:deploy']);
 
@@ -320,6 +324,9 @@ Route::group([
     Route::get('/applications/{uuid}/destinations', [ApplicationsController::class, 'destinations'])->middleware(['api.ability:read']);
     Route::post('/applications/{uuid}/destinations', [ApplicationsController::class, 'add_destination'])->middleware(['api.ability:write']);
     Route::delete('/applications/{uuid}/destinations/{destination_uuid}', [ApplicationsController::class, 'remove_destination'])->middleware(['api.ability:delete']);
+    Route::post('/applications/{uuid}/destinations/{destination_uuid}/swap', [ApplicationAvailabilityController::class, 'swap'])->middleware(['api.ability:write']);
+    Route::get('/applications/{uuid}/availability', [ApplicationAvailabilityController::class, 'show'])->middleware(['api.ability:read']);
+    Route::patch('/applications/{uuid}/availability', [ApplicationAvailabilityController::class, 'update'])->middleware(['api.ability:write']);
     Route::get('/applications/{uuid}/start', [OtherController::class, 'post_required'])->middleware(['api.ability:deploy']);
     Route::get('/applications/{uuid}/restart', [OtherController::class, 'post_required'])->middleware(['api.ability:deploy']);
     Route::get('/applications/{uuid}/stop', [OtherController::class, 'post_required'])->middleware(['api.ability:deploy']);

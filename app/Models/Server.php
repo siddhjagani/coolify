@@ -9,6 +9,7 @@ use App\Actions\Server\InstallPrerequisites;
 use App\Actions\Server\StartSentinel;
 use App\Actions\Server\ValidatePrerequisites;
 use App\Enums\ApplicationDeploymentStatus;
+use App\Enums\AvailabilityIncidentReason;
 use App\Enums\ProxyTypes;
 use App\Enums\ServerRole;
 use App\Events\ServerReachabilityChanged;
@@ -16,6 +17,8 @@ use App\Helpers\SshMultiplexingHelper;
 use App\Helpers\SslHelper;
 use App\Jobs\CheckAndStartSentinelJob;
 use App\Jobs\CheckTraefikVersionForServerJob;
+use App\Jobs\FailoverServerApplicationsJob;
+use App\Jobs\RefreshStandbyApplicationsJob;
 use App\Jobs\RegenerateSslCertJob;
 use App\Jobs\ServerConnectionCheckJob;
 use App\Livewire\Server\Proxy;
@@ -29,6 +32,7 @@ use App\Services\VultrService;
 use App\Support\ValidationPatterns;
 use App\Traits\Auditable;
 use App\Traits\ClearsGlobalSearchCache;
+use App\Traits\HasAvailability;
 use App\Traits\HasMetrics;
 use App\Traits\HasSafeStringAttribute;
 use App\Traits\HasStars;
@@ -128,7 +132,7 @@ use Symfony\Component\Yaml\Yaml;
 
 class Server extends BaseModel
 {
-    use Auditable, ClearsGlobalSearchCache, HasFactory, HasMetrics, HasStars, SchemalessAttributesTrait, SoftDeletes;
+    use Auditable, ClearsGlobalSearchCache, HasAvailability, HasFactory, HasMetrics, HasStars, SchemalessAttributesTrait, SoftDeletes;
 
     /**
      * Sentinel IP for servers that do not have a real address yet
@@ -2493,12 +2497,16 @@ $siteAddress {
 
     /**
      * Mark all resources on this server as exited, because their containers cannot be checked.
+     * An application that only uses this server as an additional destination keeps the status of its primary server.
      */
     public function markResourcesAsExited(): void
     {
-        foreach ($this->applications() as $application) {
+        foreach ($this->primaryApplications() as $application) {
             $application->status = 'exited';
             $application->save();
+        }
+        foreach ($this->additionalApplications() as $application) {
+            $application->additional_servers()->updateExistingPivot($this->id, ['status' => 'exited']);
         }
         foreach ($this->databases() as $database) {
             $database->status = 'exited';
@@ -2516,6 +2524,77 @@ $siteAddress {
                 $db->save();
             }
         }
+    }
+
+    /**
+     * Opens an outage when the server goes down and ends it when the server is back. Runs when the reachability
+     * flags change. A server that goes down starts the failover of its applications; a server that is back gets
+     * the deployments that its standby applications missed.
+     */
+    public function recordAvailabilityChange(bool $wasUp): void
+    {
+        if ($this->skipServer() || $this->isTransferredAway()) {
+            // Disabled on purpose or managed by another instance: not an outage.
+            $this->endAvailabilityIncident();
+
+            return;
+        }
+
+        if ($this->settings->is_reachable && $this->settings->is_usable) {
+            $incident = $this->endAvailabilityIncident();
+            if ($incident !== null && Application::query()
+                ->whereRelation('settings', 'is_auto_failover_enabled', true)
+                ->whereHas('additional_servers', fn (Builder $query) => $query->whereKey($this->id))
+                ->exists()) {
+                RefreshStandbyApplicationsJob::dispatch($this, $incident->started_at)->afterCommit();
+            }
+
+            return;
+        }
+
+        if ($wasUp) {
+            $firstFailedCheck = Cache::get($this->firstFailedCheckCacheKey());
+            $this->startAvailabilityIncident(
+                $this->settings->is_reachable ? AvailabilityIncidentReason::DOCKER_UNAVAILABLE : AvailabilityIncidentReason::UNREACHABLE,
+                // The server is marked down only after repeated failed checks; the outage began at the first one.
+                // The Redis cache returns numbers as strings.
+                is_numeric($firstFailedCheck) ? Carbon::createFromTimestamp((int) $firstFailedCheck) : null,
+            );
+            if ($this->autoFailoverApplications()->exists()) {
+                FailoverServerApplicationsJob::dispatch($this)->afterCommit();
+            }
+        }
+    }
+
+    /**
+     * Remembers when the connection checks started to fail, until a check passes again.
+     */
+    public function rememberFailedCheck(): void
+    {
+        Cache::add($this->firstFailedCheckCacheKey(), now()->getTimestamp(), now()->addDay());
+    }
+
+    public function forgetFailedChecks(): void
+    {
+        Cache::forget($this->firstFailedCheckCacheKey());
+    }
+
+    private function firstFailedCheckCacheKey(): string
+    {
+        return "server-first-failed-check:{$this->id}";
+    }
+
+    /**
+     * The applications with automatic failover whose primary destination is on this server.
+     *
+     * @return Builder<Application>
+     */
+    public function autoFailoverApplications(): Builder
+    {
+        return Application::query()
+            ->where('destination_type', StandaloneDocker::class)
+            ->whereIn('destination_id', StandaloneDocker::query()->where('server_id', $this->id)->select('id'))
+            ->whereRelation('settings', 'is_auto_failover_enabled', true);
     }
 
     public function isReachableChanged()

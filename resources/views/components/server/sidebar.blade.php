@@ -200,6 +200,14 @@
             'disabled' => ! $server->isFunctional(),
         ],
         [
+            // Not disabled while the server is down: that is when its outage history matters.
+            'label' => 'Availability',
+            'route' => 'server.availability',
+            'active' => $activeMenu === 'availability',
+            'icon' => 'check-circle',
+            'group' => 'Operations',
+        ],
+        [
             'label' => 'Transfer',
             'route' => 'server.transfer',
             'active' => $activeMenu === 'transfer',

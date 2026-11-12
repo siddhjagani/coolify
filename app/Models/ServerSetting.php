@@ -310,6 +310,12 @@ class ServerSetting extends Model
             if ($settings->wasChanged('ssh_host_key') && $settings->server) {
                 SshMultiplexingHelper::deleteStaleKnownHostsFiles($settings->server->uuid, $settings->ssh_host_key);
             }
+            if ($settings->wasChanged(['is_reachable', 'is_usable', 'force_disabled'])) {
+                // A new instance with these settings: a cached server can hold settings from before this update.
+                Server::query()->find($settings->server_id)?->setRelation('settings', $settings)->recordAvailabilityChange(
+                    wasUp: (bool) $settings->getOriginal('is_reachable') && (bool) $settings->getOriginal('is_usable'),
+                );
+            }
             if (
                 $settings->wasChanged('sentinel_token') ||
                 $settings->wasChanged('sentinel_custom_url') ||

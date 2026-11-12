@@ -106,7 +106,10 @@ class NotifyResourceStoppedJob implements ShouldQueue
         return str($status)->startsWith('exited');
     }
 
-    private static function stopIsExpected(BaseModel $resource): bool
+    /**
+     * Coolify stops or recreates the containers of the resource now (see expectStop()).
+     */
+    public static function stopIsExpected(BaseModel $resource): bool
     {
         return Cache::has(self::expectedStopKey($resource));
     }
@@ -116,7 +119,7 @@ class NotifyResourceStoppedJob implements ShouldQueue
         return 'resource-stop-expected:'.$resource->getMorphClass().':'.$resource->getKey();
     }
 
-    private static function isDeploying(BaseModel $resource): bool
+    public static function isDeploying(BaseModel $resource): bool
     {
         [$applicationId, $pullRequestId] = match (true) {
             $resource instanceof Application => [$resource->id, 0],

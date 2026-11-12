@@ -8,6 +8,7 @@ use App\Jobs\ConfigureDnsRecordJob;
 use App\Models\Application;
 use App\Models\DnsProviderZone;
 use App\Models\ManagedDnsRecord;
+use App\Models\Server;
 use App\Models\Service;
 use App\Support\DnsRecordHints;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -16,6 +17,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
+use Throwable;
 
 /**
  * Managed DNS records for the saved domains of an application or a service (the DNS API).
@@ -112,6 +114,52 @@ class ResourceDnsRecords
         [$hostname, $users, $zone, $content] = $this->prepare($resource, $hostname, $integrationTokenUuid, $content);
 
         return $this->provider->replaceRecord($zone, $recordId, $hostname, $content, $users[0], $currentContent, array_slice($users, 1));
+    }
+
+    /**
+     * Points the managed records of the application from its previous primary server to its current one, after the
+     * primary server changed. Only records that point at an address of the previous server change.
+     * Returns the hostnames by result; an unmanaged hostname has no managed record, so its DNS must be changed by hand.
+     *
+     * @return array{repointed: list<string>, failed: array<string, string>, unmanaged: list<string>}
+     */
+    public function repointToCurrentServer(Application $application, ?Server $previousServer): array
+    {
+        $result = ['repointed' => [], 'failed' => [], 'unmanaged' => []];
+        $hostnames = array_keys($this->hostnameUsers($application));
+        $records = ManagedDnsRecord::query()->with('integrationToken')
+            ->where('team_id', $this->teamId($application))
+            ->whereIn('name', $hostnames)
+            ->whereHas('references', fn (Builder $query) => $query
+                ->where('resource_type', $application->getMorphClass())->where('resource_id', $application->getKey()))
+            ->get();
+        $result['unmanaged'] = array_values(array_diff($hostnames, $records->pluck('name')->all()));
+        if ($records->isEmpty()) {
+            return $result;
+        }
+
+        $previousAddresses = ServerDnsAddresses::forServer($previousServer)->publicAddresses();
+        $currentAddresses = $this->addresses($application)->publicAddresses();
+        foreach ($records as $record) {
+            if (! collect($previousAddresses)->contains(fn (string $address): bool => DnsRecordHints::sameAddress($address, $record->content))) {
+                continue;
+            }
+            $isIpv4 = filter_var($record->content, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false;
+            $content = collect($currentAddresses)
+                ->first(fn (string $address): bool => (filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) === $isIpv4);
+
+            try {
+                if ($content === null) {
+                    throw new RuntimeException('The new primary server has no public '.($isIpv4 ? 'IPv4' : 'IPv6').' address.');
+                }
+                $this->replace($application, $record->name, $record->integrationToken?->uuid, $record->provider_record_id, $record->content, $content);
+                $result['repointed'][] = $record->name;
+            } catch (Throwable $e) {
+                $result['failed'][$record->name] = $e->getMessage();
+            }
+        }
+
+        return $result;
     }
 
     /**

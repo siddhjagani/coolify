@@ -5,6 +5,7 @@ namespace App\Notifications\Channels;
 use App\Jobs\SendMessageToTelegramJob;
 use App\Notifications\Application\DeploymentFailed;
 use App\Notifications\Application\DeploymentSuccess;
+use App\Notifications\Application\Failover;
 use App\Notifications\Application\RestartLimitReached;
 use App\Notifications\Application\StatusChanged;
 use App\Notifications\Container\ContainerRestarted;
@@ -65,7 +66,8 @@ class TelegramChannel
             DockerCleanupSuccess::class => $settings->telegram_notifications_docker_cleanup_success_thread_id,
             DockerCleanupFailed::class => $settings->telegram_notifications_docker_cleanup_failure_thread_id,
             HighDiskUsage::class => $settings->telegram_notifications_server_disk_usage_thread_id,
-            Unreachable::class => $settings->telegram_notifications_server_unreachable_thread_id,
+            Unreachable::class,
+            Failover::class => $settings->telegram_notifications_server_unreachable_thread_id,
             Reachable::class => $settings->telegram_notifications_server_reachable_thread_id,
             ServerPatchCheck::class => $settings->telegram_notifications_server_patch_thread_id,
             AutomaticSecurityUpdatesFinished::class => $settings->telegram_notifications_server_auto_update_thread_id,

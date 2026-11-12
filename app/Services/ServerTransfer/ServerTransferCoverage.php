@@ -7,6 +7,7 @@ use App\Models\ApplicationDeploymentQueue;
 use App\Models\ApplicationPreview;
 use App\Models\ApplicationSetting;
 use App\Models\AuditEvent;
+use App\Models\AvailabilityIncident;
 use App\Models\CloudInitScript;
 use App\Models\CloudProviderToken;
 use App\Models\DatabaseBackupS3Replica;
@@ -359,6 +360,7 @@ final class ServerTransferCoverage
         UserChangelogRead::class => 'User data of the source instance.',
         Star::class => 'User data of the source instance: users are not moved with a server.',
         AuditEvent::class => 'Audit log of the source instance.',
+        AvailabilityIncident::class => 'Outage history that the source instance recorded. The target records its own from the transfer on.',
         NotificationThrottle::class => 'Runtime state of the source instance.',
         ScheduledJobState::class => 'Scheduler state of the source instance.',
         ScheduledJobDelivery::class => 'Scheduler state of the source instance.',

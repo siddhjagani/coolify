@@ -34,6 +34,9 @@ class ServerConnectionCheckJob implements ShouldBeEncrypted, ShouldQueue
      */
     public const UNREACHABLE_THRESHOLD = 2;
 
+    /** A server with automatic failover applications is checked again this soon after a failed check. */
+    public const FAILOVER_RECHECK_SECONDS = 15;
+
     /** Each check makes this many SSH attempts before it counts as failed. */
     public const SSH_ATTEMPTS = 2;
 
@@ -114,6 +117,7 @@ class ServerConnectionCheckJob implements ShouldBeEncrypted, ShouldQueue
             }
 
             if (! $isReachable) {
+                $this->server->rememberFailedCheck();
                 $this->server->increment('unreachable_count');
 
                 Log::warning('ServerConnectionCheck: Server not reachable', [
@@ -124,6 +128,11 @@ class ServerConnectionCheckJob implements ShouldBeEncrypted, ShouldQueue
                 ]);
 
                 if ($this->server->unreachable_count < self::UNREACHABLE_THRESHOLD) {
+                    // Automatic failover waits for the verdict: check again soon instead of at the next scheduled check.
+                    if ($this->server->autoFailoverApplications()->exists()) {
+                        self::dispatch($this->server)->delay(now()->addSeconds(self::FAILOVER_RECHECK_SECONDS));
+                    }
+
                     return;
                 }
 
@@ -144,6 +153,8 @@ class ServerConnectionCheckJob implements ShouldBeEncrypted, ShouldQueue
 
             // Warn mode connects without a pinned key. Commands do not scan an unreachable server, so learn the key now.
             SshMultiplexingHelper::learnHostKey($this->server, evenIfUnreachable: true);
+
+            $this->server->forgetFailedChecks();
 
             // Server is reachable, check if Docker is available
             $isUsable = $this->checkDockerAvailability();

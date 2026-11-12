@@ -3,9 +3,11 @@
 namespace App\Livewire\Project\Shared;
 
 use App\Actions\Application\StopApplicationOneServer;
+use App\Actions\Application\SwapApplicationPrimary;
 use App\Actions\Docker\GetContainersStatus;
 use App\Events\ApplicationStatusChanged;
 use App\Models\Application;
+use App\Models\AuditEvent;
 use App\Models\Server;
 use App\Models\StandaloneDocker;
 use App\Traits\ListensToTeamChannel;
@@ -13,6 +15,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
+use Livewire\Attributes\Computed;
 use Livewire\Component;
 
 class Destination extends Component
@@ -23,6 +26,8 @@ class Destination extends Component
     public $resource;
 
     public Collection $networks;
+
+    public bool $isAutoFailoverEnabled = false;
 
     public function getListeners()
     {
@@ -38,6 +43,7 @@ class Destination extends Component
     public function mount()
     {
         $this->networks = collect([]);
+        $this->isAutoFailoverEnabled = $this->resource instanceof Application && (bool) $this->resource->settings?->is_auto_failover_enabled;
         $this->loadData();
     }
 
@@ -198,11 +204,14 @@ class Destination extends Component
         }
     }
 
+    /**
+     * Swap: makes the additional server primary, and the primary server an additional one.
+     */
     public function promote(int $network_id, int $server_id)
     {
         try {
             $this->authorize('update', $this->resource);
-            $server = $this->findUsableServer($server_id, 'Failed to promote.');
+            $server = $this->findUsableServer($server_id, 'Failed to swap.');
             if (! $server) {
                 return;
             }
@@ -210,22 +219,75 @@ class Destination extends Component
             if (! $this->resource->additional_networks()->wherePivot('server_id', $server->id)->whereKey($network->id)->exists()) {
                 abort(404);
             }
-            $this->resource->getConnection()->transaction(function () use ($network, $server) {
-                $mainDestination = $this->resource->destination;
-                $this->resource->update([
-                    'destination_id' => $network->id,
-                    'destination_type' => StandaloneDocker::class,
-                ]);
-                $this->resource->additional_networks()
-                    ->wherePivot('server_id', $server->id)
-                    ->detach($network->id);
-                $this->resource->additional_networks()->attach($mainDestination->id, ['server_id' => $mainDestination->server->id]);
-            });
+            $dns = SwapApplicationPrimary::run($this->resource, $network, 'ui');
             $this->resource->refresh();
+            $this->dispatchDnsResult($dns, $server);
             $this->refreshServers();
         } catch (\Throwable $e) {
             return handleError($e, $this);
         }
+    }
+
+    /**
+     * @param  array{repointed: list<string>, failed: array<string, string>, unmanaged: list<string>}  $dns
+     */
+    private function dispatchDnsResult(array $dns, Server $server): void
+    {
+        $title = e($server->name).' is the primary server now.';
+        if ($dns['repointed'] !== []) {
+            $this->dispatch('success', $title, 'DNS records updated: '.e(implode(', ', $dns['repointed'])).'.');
+        } else {
+            $this->dispatch('success', $title);
+        }
+        if ($dns['failed'] !== []) {
+            $this->dispatch('error', 'Some DNS records were not updated.', collect($dns['failed'])
+                ->map(fn (string $error, string $hostname): string => e("{$hostname}: {$error}"))
+                ->implode('<br>'));
+        }
+        if ($dns['unmanaged'] !== []) {
+            $this->dispatch('info', 'Coolify does not manage the DNS of '.e(implode(', ', $dns['unmanaged'])).'. Point it to '.e($server->name).' if traffic should follow the primary server.');
+        }
+    }
+
+    public function instantSaveAutoFailover(): void
+    {
+        try {
+            $this->authorize('update', $this->resource);
+            if (! $this->resource instanceof Application) {
+                abort(404);
+            }
+            if ($this->isAutoFailoverEnabled && ($reason = $this->resource->autoFailoverUnavailableReason())) {
+                $this->isAutoFailoverEnabled = false;
+                $this->dispatch('error', 'Automatic failover is not available.', e($reason));
+
+                return;
+            }
+            $this->resource->settings->update(['is_auto_failover_enabled' => $this->isAutoFailoverEnabled]);
+            $this->dispatch('success', $this->isAutoFailoverEnabled ? 'Automatic failover enabled.' : 'Automatic failover disabled.');
+        } catch (\Throwable $e) {
+            $this->isAutoFailoverEnabled = (bool) $this->resource->settings?->is_auto_failover_enabled;
+            handleError($e, $this);
+        }
+    }
+
+    /**
+     * The swaps of the application, newest first, from the audit log.
+     */
+    #[Computed]
+    public function recentSwaps(): Collection
+    {
+        if (! $this->resource instanceof Application) {
+            return collect();
+        }
+
+        return AuditEvent::query()
+            ->where('team_id', $this->resource->team()?->id)
+            ->where('resource_type', 'application')
+            ->where('resource_uuid', $this->resource->uuid)
+            ->where('action', 'primary_swapped')
+            ->latest()
+            ->limit(5)
+            ->get();
     }
 
     public function refreshServers()

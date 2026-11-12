@@ -11,6 +11,205 @@
         }
     ],
     "paths": {
+        "\/applications\/{uuid}\/availability": {
+            "get": {
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Get application availability",
+                "description": "Automatic failover state, uptime percentages of the last 24 hours, 7 days, and 30 days, and the outages of the last 30 days. Outages are only recorded while automatic failover is on. An outage starts when the primary server stops running the application.",
+                "operationId": "get-application-availability",
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "description": "UUID of the application.",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Application availability.",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "$ref": "#\/components\/schemas\/ApplicationAvailability"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#\/components\/responses\/401"
+                    },
+                    "400": {
+                        "$ref": "#\/components\/responses\/400"
+                    },
+                    "404": {
+                        "$ref": "#\/components\/responses\/404"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Update automatic failover",
+                "description": "Turn automatic failover of an application on or off. It needs at least one additional destination and a Docker registry image.",
+                "operationId": "update-application-availability",
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "description": "UUID of the application.",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application\/json": {
+                            "schema": {
+                                "required": [
+                                    "is_auto_failover_enabled"
+                                ],
+                                "properties": {
+                                    "is_auto_failover_enabled": {
+                                        "description": "Make an additional server primary when the primary server goes down.",
+                                        "type": "boolean"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Application availability.",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "$ref": "#\/components\/schemas\/ApplicationAvailability"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#\/components\/responses\/401"
+                    },
+                    "400": {
+                        "$ref": "#\/components\/responses\/400"
+                    },
+                    "404": {
+                        "$ref": "#\/components\/responses\/404"
+                    },
+                    "422": {
+                        "$ref": "#\/components\/responses\/422"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "\/applications\/{uuid}\/destinations\/{destination_uuid}\/swap": {
+            "post": {
+                "tags": [
+                    "Applications"
+                ],
+                "summary": "Swap primary destination",
+                "description": "Make an additional destination the primary destination of an application. The old primary destination becomes an additional one. Coolify-managed DNS records of the application move to the new primary server.",
+                "operationId": "swap-application-destination",
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "description": "UUID of the application.",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "destination_uuid",
+                        "in": "path",
+                        "description": "UUID of the additional destination.",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The destination is primary now.",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string"
+                                        },
+                                        "dns_repointed": {
+                                            "description": "Hostnames whose managed DNS record points to the new primary server now.",
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "dns_failed": {
+                                            "description": "Hostnames whose managed DNS record could not be changed, with the error.",
+                                            "type": "object",
+                                            "additionalProperties": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "dns_unmanaged": {
+                                            "description": "Hostnames without a Coolify-managed DNS record.",
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#\/components\/responses\/401"
+                    },
+                    "400": {
+                        "$ref": "#\/components\/responses\/400"
+                    },
+                    "404": {
+                        "$ref": "#\/components\/responses\/404"
+                    },
+                    "422": {
+                        "$ref": "#\/components\/responses\/422"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "\/applications\/{uuid}\/previews": {
             "get": {
                 "tags": [
@@ -18688,6 +18887,53 @@
                 ]
             }
         },
+        "\/servers\/{uuid}\/availability": {
+            "get": {
+                "tags": [
+                    "Servers"
+                ],
+                "summary": "Get server availability",
+                "description": "Uptime percentages of the last 24 hours, 7 days, and 30 days, and the outages of the last 30 days. An outage starts when Coolify marks the server as unreachable or Docker as unavailable.",
+                "operationId": "get-server-availability",
+                "parameters": [
+                    {
+                        "name": "uuid",
+                        "in": "path",
+                        "description": "Server UUID",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Server availability.",
+                        "content": {
+                            "application\/json": {
+                                "schema": {
+                                    "$ref": "#\/components\/schemas\/Availability"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#\/components\/responses\/401"
+                    },
+                    "400": {
+                        "$ref": "#\/components\/responses\/400"
+                    },
+                    "404": {
+                        "$ref": "#\/components\/responses\/404"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "\/servers\/{uuid}\/cloudflare-tunnel": {
             "get": {
                 "tags": [
@@ -28030,6 +28276,37 @@
                 },
                 "type": "object"
             },
+            "ApplicationAvailability": {
+                "description": "Automatic failover state, uptime, and outages of the last 30 days of an application.",
+                "type": "object",
+                "allOf": [
+                    {
+                        "properties": {
+                            "is_auto_failover_enabled": {
+                                "description": "Automatic failover, uptime and outage history of applications, and swapping the primary server.",
+                                "type": "boolean"
+                            },
+                            "auto_failover_unavailable_reason": {
+                                "description": "Why automatic failover cannot work now. Null when it can.",
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "primary_server_uuid": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            }
+                        },
+                        "type": "object"
+                    },
+                    {
+                        "$ref": "#\/components\/schemas\/Availability"
+                    }
+                ]
+            },
             "ApplicationPreview": {
                 "properties": {
                     "uuid": {
@@ -28390,6 +28667,61 @@
                                 },
                                 "provider": {
                                     "type": "string"
+                                }
+                            },
+                            "type": "object"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "Availability": {
+                "description": "Uptime and outages of the last 30 days.",
+                "properties": {
+                    "uptime_percentage": {
+                        "properties": {
+                            "24h": {
+                                "type": "number",
+                                "format": "float"
+                            },
+                            "7d": {
+                                "type": "number",
+                                "format": "float"
+                            },
+                            "30d": {
+                                "type": "number",
+                                "format": "float"
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "incidents": {
+                        "type": "array",
+                        "items": {
+                            "properties": {
+                                "reason": {
+                                    "type": "string",
+                                    "enum": [
+                                        "unreachable",
+                                        "docker_unavailable",
+                                        "server_down",
+                                        "not_running"
+                                    ]
+                                },
+                                "started_at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                "ended_at": {
+                                    "description": "Null while the outage goes on.",
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "format": "date-time"
+                                },
+                                "duration_seconds": {
+                                    "type": "integer"
                                 }
                             },
                             "type": "object"
@@ -29258,6 +29590,10 @@
                     },
                     "is_build_server_enabled": {
                         "type": "boolean"
+                    },
+                    "is_auto_failover_enabled": {
+                        "type": "boolean",
+                        "description": "Make an additional server primary when the primary server goes down."
                     },
                     "is_consistent_container_name_enabled": {
                         "type": "boolean"
