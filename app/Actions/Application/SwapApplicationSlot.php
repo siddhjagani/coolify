@@ -47,7 +47,7 @@ class SwapApplicationSlot
 
     /**
      * Settings that move with the production traffic. Automatic deployment moves too, so a push keeps deploying the
-     * staging slot after a swap.
+     * staging slot after a swap, and so does the traffic weight, so the new production gets the share of production.
      */
     public const SETTINGS_ROUTING = [
         'is_force_https_enabled',
@@ -56,23 +56,36 @@ class SwapApplicationSlot
         'is_stripprefix_enabled',
         'traefik_certificate_resolver',
         'is_auto_deploy_enabled',
+        'slot_traffic_weight',
     ];
 
     /**
+     * @param  Application  $application  An application of the slot group: production, or the slot to promote.
      * @param  string  $source  Who swapped: `ui` or `api`. Names the audit event.
+     * @param  Application|null  $slot  The slot to promote, needed when production has more than one slot.
      * @return string The UUID of the staging slot deployment that starts the swap.
      *
      * @throws ApplicationSlotException when the applications cannot swap now
      */
-    public function handle(Application $application, string $source = 'ui'): string
+    public function handle(Application $application, string $source = 'ui', ?Application $slot = null): string
     {
         $application->refresh();
-        if ($application->slotPartner() === null) {
+        $production = $application->slotOf ?? $application;
+        $slots = $production->slots;
+        if ($slots->isEmpty()) {
             throw new ApplicationSlotException('The application has no deployment slot.', 404);
         }
-        [$production, $staging] = $application->slotOf ? [$application->slotOf, $application] : [$application, $application->slot];
+        $staging = match (true) {
+            $slot !== null => $slots->firstWhere('id', $slot->id),
+            $application->isNot($production) => $application,
+            $slots->count() === 1 => $slots->first(),
+            default => throw new ApplicationSlotException('The application has more than one slot. Choose the slot to make production.'),
+        };
+        if ($staging === null) {
+            throw new ApplicationSlotException('The slot is not a deployment slot of this application.', 404);
+        }
 
-        $lockKey = self::lockKey($production->id, $staging->id);
+        $lockKey = self::lockKey($production->id);
         $timeout = self::timeoutSeconds($production);
         if (! Cache::add($lockKey, true, $timeout)) {
             throw new ApplicationSlotException('A swap of these deployment slots is already running.', 409);
@@ -144,11 +157,12 @@ class SwapApplicationSlot
     }
 
     /**
-     * One swap of a slot pair at a time, also while the finish job waits.
+     * One swap per slot group at a time, also while the finish job waits. The key uses the production application at
+     * the start of the swap.
      */
-    public static function lockKey(int $applicationId, int $partnerId): string
+    public static function lockKey(int $productionId): string
     {
-        return 'application-slot-swap:'.min($applicationId, $partnerId).'-'.max($applicationId, $partnerId);
+        return "application-slot-swap:{$productionId}";
     }
 
     /**

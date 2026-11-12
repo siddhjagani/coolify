@@ -52,7 +52,7 @@ function slotsApiHeaders(string $token): array
 
 function slotsApiRunningPair(Application $application): Application
 {
-    $slot = Application::query()->findOrFail($application->fresh()->slot->id);
+    $slot = $application->fresh()->slots->first();
     $slot->update(['status' => 'running:healthy']);
     foreach ([$application, $slot] as $resource) {
         ApplicationDeploymentQueue::create([
@@ -87,14 +87,21 @@ test('the API creates a slot and swaps it', function () {
     Bus::assertDispatched(FinishApplicationSlotSwapJob::class);
 });
 
-test('the API refuses a second slot and a swap without a slot', function () {
+test('the API refuses a swap without a slot, and asks which slot when there are several', function () {
     $this->withHeaders(slotsApiHeaders($this->token))
         ->postJson("/api/v1/applications/{$this->application->uuid}/slots/swap")
         ->assertNotFound()
         ->assertJsonPath('message', 'The application has no deployment slot.');
 
     $this->withHeaders(slotsApiHeaders($this->token))->postJson("/api/v1/applications/{$this->application->uuid}/slots")->assertCreated();
-    $this->withHeaders(slotsApiHeaders($this->token))->postJson("/api/v1/applications/{$this->application->uuid}/slots")->assertStatus(409);
+    $this->withHeaders(slotsApiHeaders($this->token))->postJson("/api/v1/applications/{$this->application->uuid}/slots")->assertCreated();
+    $this->withHeaders(slotsApiHeaders($this->token))
+        ->postJson("/api/v1/applications/{$this->application->uuid}/slots/swap")
+        ->assertUnprocessable()
+        ->assertJsonPath('message', 'The application has more than one slot. Choose the slot to make production.');
+    $this->withHeaders(slotsApiHeaders($this->token))
+        ->postJson("/api/v1/applications/{$this->application->uuid}/slots/swap", ['slot_uuid' => $this->application->uuid])
+        ->assertNotFound();
 });
 
 test('the API returns why a swap is not possible', function () {
@@ -123,7 +130,7 @@ test('a swap needs the deploy ability', function () {
         ->postJson("/api/v1/applications/{$this->application->uuid}/slots/swap")
         ->assertForbidden();
 
-    expect($this->application->fresh()->slot->fqdn)->not->toBe('https://shop.example.com');
+    expect($this->application->fresh()->slots->first()->fqdn)->not->toBe('https://shop.example.com');
 });
 
 test('a member cannot create or swap slots', function () {
@@ -141,7 +148,7 @@ test('a member cannot create or swap slots', function () {
     $this->withHeaders(slotsApiHeaders($memberToken))
         ->postJson("/api/v1/applications/{$this->application->uuid}/slots/swap")
         ->assertForbidden();
-    expect($this->application->fresh()->slot->fqdn)->not->toBe('https://shop.example.com');
+    expect($this->application->fresh()->slots->first()->fqdn)->not->toBe('https://shop.example.com');
 });
 
 test('another team cannot reach the slots of an application', function () {
@@ -157,5 +164,5 @@ test('another team cannot reach the slots of an application', function () {
     $this->withHeaders(slotsApiHeaders($otherToken))
         ->postJson("/api/v1/applications/{$this->application->uuid}/slots/swap")
         ->assertNotFound();
-    expect($this->application->fresh()->slot)->toBeNull();
+    expect($this->application->fresh()->slots)->toBeEmpty();
 });

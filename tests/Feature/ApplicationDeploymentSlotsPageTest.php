@@ -52,7 +52,7 @@ function slotsPageUser(Team $team, string $role): User
 
 function slotsPageRunningSlot(Application $application): Application
 {
-    $slot = $application->fresh()->slot;
+    $slot = $application->fresh()->slots->first();
     $slot->update(['status' => 'running:healthy']);
     foreach ([$application, $slot] as $resource) {
         ApplicationDeploymentQueue::create([
@@ -81,8 +81,8 @@ test('an admin creates a slot and swaps from the page', function () {
 
     $slot = slotsPageRunningSlot($this->application);
     Livewire::test(DeploymentSlots::class, ['application' => $slot])
-        ->assertSeeInOrder(['Production slot', 'shop', 'Running', 'Live', 'Staging slot', 'shop-green', 'Running'])
-        ->call('swap')
+        ->assertSeeInOrder(['Production slot', 'shop', 'Running', 'Live', 'Slot', 'shop-green', 'Running'])
+        ->call('swap', $slot->uuid)
         ->assertDispatched('success')
         ->assertSee('Swapping');
 
@@ -106,7 +106,7 @@ test('the page shows which slot is live, its status, and a running deployment', 
     ]);
 
     Livewire::test(DeploymentSlots::class, ['application' => $slot->fresh()])
-        ->assertSeeInOrder(['Production slot', 'Running', 'Live', 'Staging slot', 'Exited', 'Deploying'])
+        ->assertSeeInOrder(['Production slot', 'Running', 'Live', 'Slot', 'Exited', 'Deploying'])
         ->assertSee('/deployment/slot-deploy-1')
         ->assertSee('Wait until the running swap or deployment ends.')
         ->assertSeeHtml('wire:poll.5s');
@@ -123,7 +123,7 @@ test('a member cannot create or swap slots', function () {
     session(['currentTeam' => $this->team]);
 
     Livewire::test(DeploymentSlots::class, ['application' => $this->application])
-        ->call('swap')
+        ->call('swap', $slot->uuid)
         ->assertDispatched('error');
 
     expect($slot->fresh()->fqdn)->not->toBe('https://shop.example.com')
@@ -141,7 +141,7 @@ test('a swap acts on the team of the application after a team switch', function 
 
     $page = Livewire::test(DeploymentSlots::class, ['application' => $this->application]);
     session(['currentTeam' => $otherTeam]);
-    $page->call('swap')->assertDispatched('success');
+    $page->call('swap', $slot->uuid)->assertDispatched('success');
 
     expect($slot->fresh()->fqdn)->toBe('https://shop.example.com');
 });
@@ -161,5 +161,5 @@ test('the configuration menu opens the Deployment Slots page', function () {
     ]))
         ->assertOk()
         ->assertSee('Deployment Slots')
-        ->assertSee('Create staging slot');
+        ->assertSee('Add slot');
 });

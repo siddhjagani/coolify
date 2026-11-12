@@ -316,7 +316,9 @@ Route::group([
     Route::post('/applications/{uuid}/move', [ApplicationsController::class, 'move_by_uuid'])->middleware(['api.ability:write']);
     Route::post('/applications/{uuid}/migrate', [ApplicationsController::class, 'migrate_by_uuid'])->middleware(['api.ability:write']);
     Route::post('/applications/{uuid}/clone', [ApplicationsController::class, 'clone_by_uuid'])->middleware(['api.ability:write']);
+    Route::get('/applications/{uuid}/slots', [ApplicationSlotsController::class, 'index'])->middleware(['api.ability:read']);
     Route::post('/applications/{uuid}/slots', [ApplicationSlotsController::class, 'create'])->middleware(['api.ability:write']);
+    Route::patch('/applications/{uuid}/slots/traffic', [ApplicationSlotsController::class, 'traffic'])->middleware(['api.ability:write']);
     Route::post('/applications/{uuid}/slots/swap', [ApplicationSlotsController::class, 'swap'])->middleware(['api.ability:write']);
     Route::get('/applications/{uuid}/rollback-images', [ApplicationsController::class, 'rollback_images'])->middleware(['api.ability:read']);
     Route::post('/applications/{uuid}/rollback', [ApplicationsController::class, 'rollback_by_uuid'])->middleware(['api.ability:deploy']);

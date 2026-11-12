@@ -84,8 +84,9 @@ class FinishApplicationSlotSwapJob implements ShouldBeEncrypted, ShouldQueue
         $stagingName = $staging->name;
 
         $production->getConnection()->transaction(function () use ($production, $staging, $productionName, $stagingName) {
-            // The old staging slot becomes production: the link and the names follow the roles.
+            // The old staging slot becomes production: the links and the names follow the roles.
             $staging->forceFill(['slot_of_id' => null, 'name' => $productionName])->save();
+            Application::query()->where('slot_of_id', $production->id)->update(['slot_of_id' => $staging->id]);
             $production->forceFill(['slot_of_id' => $staging->id, 'name' => $stagingName]);
             SwapApplicationSlot::applyRouting($production, $this->stagingRouting);
 
@@ -111,6 +112,8 @@ class FinishApplicationSlotSwapJob implements ShouldBeEncrypted, ShouldQueue
             $dnsCleanup = app(ManagedDnsRecordCleanup::class);
             $dnsCleanup->queueReleaseOfRemovedHostnames($production, $productionHostnames, $teamId);
             $dnsCleanup->queueReleaseOfRemovedHostnames($staging, $this->stagingHostnames, $teamId);
+            // The traffic split follows the new production application.
+            $staging->destination->server->setupSlotTrafficSplit();
         } catch (Throwable $e) {
             Log::warning("Finishing the slot swap of {$production->uuid} failed: {$e->getMessage()}");
         }
@@ -124,7 +127,7 @@ class FinishApplicationSlotSwapJob implements ShouldBeEncrypted, ShouldQueue
             'deployment_uuid' => $this->deploymentUuid,
         ]);
         ApplicationStatusChanged::dispatch($teamId);
-        Cache::forget(SwapApplicationSlot::lockKey($this->productionId, $this->stagingId));
+        Cache::forget(SwapApplicationSlot::lockKey($this->productionId));
     }
 
     /**
@@ -138,6 +141,11 @@ class FinishApplicationSlotSwapJob implements ShouldBeEncrypted, ShouldQueue
         }
 
         SwapApplicationSlot::applyRouting($staging, $this->stagingRouting);
+        try {
+            $production->destination->server->setupSlotTrafficSplit();
+        } catch (Throwable $e) {
+            Log::warning("Rewriting the slot traffic split of {$production->uuid} after a reverted swap failed: {$e->getMessage()}");
+        }
         auditLog('system.application.slot_swap_reverted', [
             'team_id' => $production->team()?->id,
             'application_uuid' => $production->uuid,
@@ -148,7 +156,7 @@ class FinishApplicationSlotSwapJob implements ShouldBeEncrypted, ShouldQueue
             'reason' => $reason,
         ], 'warning');
         ApplicationStatusChanged::dispatch($production->team()?->id);
-        Cache::forget(SwapApplicationSlot::lockKey($this->productionId, $this->stagingId));
+        Cache::forget(SwapApplicationSlot::lockKey($this->productionId));
     }
 
     /**
@@ -161,7 +169,7 @@ class FinishApplicationSlotSwapJob implements ShouldBeEncrypted, ShouldQueue
         $production = Application::query()->find($this->productionId);
         $staging = Application::query()->find($this->stagingId);
         if ($production === null || $staging === null || (int) $staging->slot_of_id !== $production->id) {
-            Cache::forget(SwapApplicationSlot::lockKey($this->productionId, $this->stagingId));
+            Cache::forget(SwapApplicationSlot::lockKey($this->productionId));
 
             return [null, null];
         }

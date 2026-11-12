@@ -101,12 +101,18 @@ test('creating a slot clones the application on the same server with its own dom
         ->and($this->stagingFqdn)->not->toBeEmpty()->not->toContain('shop.example.com')
         ->and($this->staging->custom_network_aliases)->toBeNull()
         ->and($this->staging->scheduled_tasks()->count())->toBe(0)
-        ->and($this->production->fresh()->slotPartner()->id)->toBe($this->staging->id);
+        ->and($this->production->fresh()->slotGroup()->pluck('id')->all())->toBe([$this->production->id, $this->staging->id]);
 });
 
-test('an application can have only one slot, and a clone of a slot is not a slot', function () {
-    expect(fn () => CreateApplicationSlot::run($this->production->fresh()))
-        ->toThrow(ApplicationSlotException::class, 'already has a deployment slot');
+test('more slots join the same group, and a clone of a slot is not a slot', function () {
+    $second = CreateApplicationSlot::run($this->production->fresh());
+    $third = CreateApplicationSlot::run($this->staging->fresh(), 'shop-canary');
+
+    expect($second->name)->toBe('shop-slot-2')
+        ->and($second->slot_of_id)->toBe($this->production->id)
+        ->and($third->name)->toBe('shop-canary')
+        ->and($third->slot_of_id)->toBe($this->production->id)
+        ->and($this->staging->fresh()->slotGroup()->pluck('id')->all())->toBe([$this->production->id, $this->staging->id, $second->id, $third->id]);
 
     $clone = clone_application($this->staging->fresh(), $this->destination, ['name' => 'copy']);
 
@@ -126,7 +132,7 @@ test('starting a swap gives the staging slot the production routing and restarts
         ->and(decodedLabels($staging))->toContain('shop.example.com')
         // Production keeps serving its domains until the staging slot runs with them.
         ->and($production->fqdn)->toBe('https://shop.example.com')
-        ->and($production->slot)->not->toBeNull();
+        ->and($production->slots)->toHaveCount(1);
 
     $deployment = ApplicationDeploymentQueue::query()->where('deployment_uuid', $deploymentUuid)->firstOrFail();
     expect($deployment->application_id)->toBe((string) $staging->id)
@@ -161,7 +167,7 @@ test('a finished staging deployment completes the swap', function () {
     $restart = ApplicationDeploymentQueue::query()->where('application_id', $newStaging->id)->latest('id')->firstOrFail();
     expect($restart->commit)->toBe('aaaa000000000000000000000000000000000000')
         ->and((bool) $restart->restart_only)->toBeTrue()
-        ->and(Cache::has(SwapApplicationSlot::lockKey($newProduction->id, $newStaging->id)))->toBeFalse();
+        ->and(Cache::has(SwapApplicationSlot::lockKey($this->production->id)))->toBeFalse();
 });
 
 test('a failed or cancelled staging deployment puts the staging routing back', function (string $status) {
@@ -178,7 +184,7 @@ test('a failed or cancelled staging deployment puts the staging routing back', f
         ->and($staging->settings->is_auto_deploy_enabled)->toBeTrue()
         ->and(decodedLabels($staging))->not->toContain('shop.example.com')
         ->and($this->production->fresh()->fqdn)->toBe('https://shop.example.com')
-        ->and(Cache::has(SwapApplicationSlot::lockKey($this->production->id, $staging->id)))->toBeFalse();
+        ->and(Cache::has(SwapApplicationSlot::lockKey($this->production->id)))->toBeFalse();
 })->with([
     ApplicationDeploymentStatus::FAILED->value,
     ApplicationDeploymentStatus::CANCELLED_BY_USER->value,
@@ -192,7 +198,7 @@ test('the finish job waits while the staging deployment runs', function () {
     $job->handle();
 
     $job->assertReleased(FinishApplicationSlotSwapJob::POLL_SECONDS);
-    expect($this->production->fresh()->slot)->not->toBeNull();
+    expect($this->production->fresh()->slots)->toHaveCount(1);
 });
 
 test('a timed out swap reverts', function () {
@@ -217,7 +223,7 @@ test('a swap is refused when the setup cannot move without downtime', function (
         ->toThrow(ApplicationSlotException::class, $message);
 
     expect($this->staging->fresh()->fqdn)->toBe($this->stagingFqdn)
-        ->and(Cache::has(SwapApplicationSlot::lockKey($this->production->id, $this->staging->id)))->toBeFalse();
+        ->and(Cache::has(SwapApplicationSlot::lockKey($this->production->id)))->toBeFalse();
 })->with([
     'compose' => [fn (Application $p) => $p->update(['build_pack' => 'dockercompose']), 'Docker Compose'],
     'manual labels' => [fn (Application $p) => $p->settings->update(['is_container_label_readonly_enabled' => false]), 'managed manually'],

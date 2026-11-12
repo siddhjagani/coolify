@@ -4844,10 +4844,12 @@ COPY ./nginx.conf /etc/nginx/conf.d/default.conf");
                     ...(! empty($ports) ? ['expose' => $ports] : []),
                     'networks' => [
                         $this->destination->network => [
-                            'aliases' => array_merge(
+                            // The UUID stays the same across rolling updates, so the slot traffic split of Caddy can reach the application.
+                            'aliases' => array_values(array_unique(array_merge(
                                 [$this->container_name],
+                                $this->pull_request_id === 0 ? [$this->application->uuid] : [],
                                 $custom_network_aliases
-                            ),
+                            ))),
                         ],
                     ],
                     'mem_limit' => $this->application->limits_memory,

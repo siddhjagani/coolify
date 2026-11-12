@@ -31,7 +31,6 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -102,7 +101,7 @@ use Symfony\Component\Yaml\Yaml;
         'source_id' => ['type' => 'integer', 'nullable' => true, 'description' => 'Source identifier.'],
         'private_key_id' => ['type' => 'integer', 'nullable' => true, 'description' => 'Private key identifier.'],
         'environment_id' => ['type' => 'integer', 'description' => 'Environment identifier.'],
-        'slot_of_id' => ['type' => 'integer', 'nullable' => true, 'description' => 'Identifier of the production application when this application is its staging slot.'],
+        'slot_of_id' => ['type' => 'integer', 'nullable' => true, 'description' => 'Identifier of the production application when this application is one of its deployment slots.'],
         'dockerfile' => ['type' => 'string', 'nullable' => true, 'description' => 'Dockerfile content. Used for dockerfile build pack.'],
         'dockerfile_location' => ['type' => 'string', 'description' => 'Dockerfile location.'],
         'custom_labels' => ['type' => 'string', 'nullable' => true, 'description' => 'Custom labels.'],
@@ -1352,7 +1351,7 @@ class Application extends BaseModel
     }
 
     /**
-     * The production application, when this application is its staging slot.
+     * The production application, when this application is one of its deployment slots.
      */
     public function slotOf(): BelongsTo
     {
@@ -1360,20 +1359,24 @@ class Application extends BaseModel
     }
 
     /**
-     * The staging slot, when this application is the production application.
+     * The deployment slots, when this application is the production application.
      */
-    public function slot(): HasOne
+    public function slots(): HasMany
     {
-        return $this->hasOne(Application::class, 'slot_of_id');
+        return $this->hasMany(Application::class, 'slot_of_id')->orderBy('id');
     }
 
     /**
-     * The other application of the slot pair: the production application of a staging slot, or the staging slot of a
-     * production application.
+     * The production application followed by its slots, or an empty collection when the application has no slot group.
+     *
+     * @return Collection<int, Application>
      */
-    public function slotPartner(): ?Application
+    public function slotGroup(): Collection
     {
-        return $this->slotOf ?? $this->slot;
+        $production = $this->slotOf ?? $this;
+        $slots = $production->slots;
+
+        return $slots->isEmpty() ? collect() : collect([$production])->concat($slots)->values();
     }
 
     public function deployment_queue()
