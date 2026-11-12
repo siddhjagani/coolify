@@ -188,7 +188,7 @@ compose() {
     compose_files+=(-f "$SIDE_BY_SIDE_COMPOSE_FILE")
   fi
   docker compose -p "$(project_name "$name")" "${compose_files[@]}" \
-    "${env_files[@]}" --env-file "$(env_file "$name")" "${profiles[@]}" "$@"
+    ${env_files[@]+"${env_files[@]}"} --env-file "$(env_file "$name")" "${profiles[@]}" "$@"
 }
 
 select_backend() {
